@@ -1,164 +1,161 @@
 #!/usr/bin/env python3
 """
 CLI Chat Interface for IT Operations AI Agent.
-Provides an interactive command-line interface to chat with the AI agent.
+Technical, terminal-friendly interface with optional debug mode.
 """
 import os
 import sys
 import click
-from rich.console import Console
-from rich.panel import Panel
-from rich.markdown import Markdown
-from rich.prompt import Prompt
 from dotenv import load_dotenv
 
-# Add parent directory to path to import agent
+# Add parent directory to path
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '../..')))
 
 from src.agent.ai_agent import ITOperationsAgent
 
-console = Console()
 
-
-def print_welcome():
-    """Print welcome message."""
-    welcome_text = """
-# IT Operations AI Assistant
-
-Welcome to the IT Operations AI Assistant! I can help you with:
-
-- **Add users to groups**: "Add john to the developers group"
-- **Reboot VMs**: "Reboot the web-server VM"
-- **Whitelist paths**: "Whitelist /opt/app/data for backup access"
-
-Type your request in natural language, and I'll execute the appropriate action.
-
-**Commands:**
-- `exit` or `quit` - Exit the chat
-- `clear` - Clear conversation history
-- `help` - Show this help message
-"""
-    console.print(Panel(Markdown(welcome_text), title="Welcome", border_style="blue"))
+def print_banner():
+    """Print minimal banner."""
+    print("=" * 60)
+    print("IT OPERATIONS AI AGENT")
+    print("=" * 60)
+    print("Commands: exit, quit, clear, help, debug")
+    print("=" * 60)
+    print()
 
 
 def print_help():
     """Print help message."""
-    help_text = """
-# Available Commands
-
-- **exit** or **quit** - Exit the chat application
-- **clear** - Clear the conversation history and start fresh
-- **help** - Show this help message
-
-# Example Requests
-
-- "Add user sarah to the admins group"
-- "Please reboot vm-production-01"
-- "I need to whitelist the path /var/log/app for monitoring"
-- "Can you add mike to developers and also reboot test-server?"
-"""
-    console.print(Panel(Markdown(help_text), title="Help", border_style="green"))
+    print("\nCOMMANDS:")
+    print("  exit, quit    - Exit the agent")
+    print("  clear         - Clear conversation history")
+    print("  help          - Show this help")
+    print("  debug         - Toggle debug mode (show reasoning logs)")
+    print("\nAVAILABLE OPERATIONS:")
+    print("  - Add user to group: 'Add <username> to <group>'")
+    print("  - Reboot VM: 'Reboot <vm_name>'")
+    print("  - Whitelist path: 'Whitelist <path>'")
+    print("\nEXAMPLES:")
+    print("  > Add Arjun to CloudOps group")
+    print("  > Reboot appserver-14 vm")
+    print("  > Whitelist /opt/data/uploads")
+    print()
 
 
 @click.command()
 @click.option(
     '--api-url',
     default='http://localhost:8000',
-    help='Base URL for the IT Operations API',
-    show_default=True
+    help='IT Operations API base URL'
 )
 @click.option(
-    '--api-key',
-    default=None,
-    help='Anthropic API key (or set ANTHROPIC_API_KEY env var)'
+    '--debug/--no-debug',
+    default=False,
+    help='Enable debug mode (show reasoning logs)'
 )
-def main(api_url: str, api_key: str):
+def main(api_url: str, debug: bool):
     """
-    IT Operations AI Assistant - Interactive CLI Chat Interface
+    IT Operations AI Agent - CLI Interface
 
-    Chat with an AI agent that can perform IT operations by calling appropriate APIs.
+    Technical, deterministic agent for IT automation.
+    Uses Portkey with Bedrock Claude Opus 4.
     """
-    # Load environment variables from .env file if it exists
+    # Load environment variables
     load_dotenv()
 
-    # Check for API key
-    if not api_key and not os.environ.get("ANTHROPIC_API_KEY"):
-        console.print(
-            "[bold red]Error:[/bold red] ANTHROPIC_API_KEY not found. "
-            "Please set it as an environment variable or use --api-key option.",
-            style="red"
-        )
-        console.print("\nYou can set it by running:")
-        console.print("  export ANTHROPIC_API_KEY='your-api-key-here'", style="yellow")
+    # Check for required credentials
+    if not os.environ.get("PORTKEY_API_KEY"):
+        print("ERROR: PORTKEY_API_KEY not set")
+        print("Set it in .env or export PORTKEY_API_KEY='your-key'")
         sys.exit(1)
 
-    # Initialize the agent
+    # Initialize agent
     try:
-        agent = ITOperationsAgent(api_base_url=api_url, api_key=api_key)
-        console.print(f"[green]✓[/green] Connected to API at {api_url}")
+        agent = ITOperationsAgent(
+            api_base_url=api_url,
+            debug=debug
+        )
+        print(f"[OK] Connected to API at {api_url}")
+        if debug:
+            print("[DEBUG] Debug mode enabled - showing reasoning logs")
     except Exception as e:
-        console.print(f"[bold red]Error initializing agent:[/bold red] {str(e)}", style="red")
+        print(f"ERROR: Failed to initialize agent: {e}")
         sys.exit(1)
 
-    # Print welcome message
-    print_welcome()
+    # Print banner
+    print_banner()
 
-    # Main chat loop
+    # Debug mode toggle
+    debug_mode = debug
+
+    # Main loop
     while True:
         try:
             # Get user input
-            user_input = Prompt.ask("\n[bold cyan]You[/bold cyan]")
+            user_input = input("> ").strip()
 
-            # Handle empty input
-            if not user_input.strip():
+            if not user_input:
                 continue
 
             # Handle commands
-            command = user_input.strip().lower()
+            cmd = user_input.lower()
 
-            if command in ['exit', 'quit']:
-                console.print("\n[yellow]Goodbye![/yellow]")
+            if cmd in ['exit', 'quit']:
+                print("\nExiting.")
                 break
 
-            elif command == 'clear':
+            elif cmd == 'clear':
                 agent.reset_conversation()
-                console.print("[green]✓[/green] Conversation history cleared")
+                print("[OK] Conversation cleared")
                 continue
 
-            elif command == 'help':
+            elif cmd == 'help':
                 print_help()
                 continue
 
-            # Process the message with the AI agent
-            console.print("\n[bold magenta]Assistant[/bold magenta] (thinking...)", style="dim")
+            elif cmd == 'debug':
+                debug_mode = not debug_mode
+                agent.debug = debug_mode
+                status = "enabled" if debug_mode else "disabled"
+                print(f"[OK] Debug mode {status}")
+                continue
 
-            try:
-                response = agent.chat(user_input)
+            # Process message
+            if debug_mode:
+                print("[AGENT] Processing...")
 
-                # Clear the "thinking" line and print response
-                console.print("\r[bold magenta]Assistant:[/bold magenta]")
-                console.print(Panel(response, border_style="magenta", padding=(1, 2)))
+            response = agent.chat(user_input)
 
-            except Exception as e:
-                console.print(f"[bold red]Error:[/bold red] {str(e)}", style="red")
-                console.print(
-                    "\n[yellow]Tip:[/yellow] Make sure the API server is running at "
-                    f"{api_url}"
-                )
+            # Print response
+            print(f"\n{response}\n")
+
+            # Show reasoning log in debug mode
+            if debug_mode:
+                reasoning_log = agent.get_reasoning_log()
+                if reasoning_log:
+                    print("[DEBUG] Reasoning Log:")
+                    for log_entry in reasoning_log:
+                        print(f"  {log_entry}")
+                    print()
 
         except KeyboardInterrupt:
-            console.print("\n\n[yellow]Interrupted. Type 'exit' to quit or press Ctrl+C again.[/yellow]")
+            print("\n\n[INTERRUPT] Press Ctrl+C again to exit, or type 'exit'")
             try:
-                # Give user a chance to exit gracefully
                 import time
                 time.sleep(0.5)
             except KeyboardInterrupt:
-                console.print("\n[yellow]Goodbye![/yellow]")
+                print("\nExiting.")
                 break
 
         except EOFError:
-            console.print("\n[yellow]Goodbye![/yellow]")
+            print("\nExiting.")
             break
+
+        except Exception as e:
+            print(f"ERROR: {e}")
+            if debug_mode:
+                import traceback
+                traceback.print_exc()
 
 
 if __name__ == '__main__':

@@ -1,56 +1,124 @@
 """
-Agentic AI Service using Claude API with tool use capabilities.
-This agent can understand user requests and invoke appropriate API endpoints.
+Agentic AI Service with structured reasoning loop and Portkey integration.
+This agent follows a deterministic reasoning pattern: interpret → validate → choose tool → execute → summarize.
 """
 import os
 import json
 import requests
-from typing import List, Dict, Any, Optional
-from anthropic import Anthropic
+import re
+from typing import List, Dict, Any, Optional, Tuple
+from portkey_ai import Portkey
 import logging
+from datetime import datetime
 
-logging.basicConfig(level=logging.INFO)
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    datefmt='%Y-%m-%d %H:%M:%S'
+)
 logger = logging.getLogger(__name__)
+
+
+class ReasoningStep:
+    """Represents a step in the agent's reasoning process."""
+    INTERPRET = "INTERPRET"
+    VALIDATE = "VALIDATE"
+    CHOOSE_TOOL = "CHOOSE_TOOL"
+    EXECUTE = "EXECUTE"
+    SUMMARIZE = "SUMMARIZE"
 
 
 class ITOperationsAgent:
     """
-    An AI agent that can perform IT operations by calling appropriate API endpoints.
-    Uses Claude's tool use capability to understand user intent and execute actions.
+    Advanced agentic AI for IT operations with structured reasoning.
+    Uses Portkey with Bedrock Claude Opus 4 for intelligent tool selection.
     """
 
-    def __init__(self, api_base_url: str = "http://localhost:8000", api_key: Optional[str] = None):
+    # Dangerous operations that require confirmation
+    DANGEROUS_OPS = {
+        "reboot_vm": ["production", "prod", "db", "database", "master"],
+        "whitelist_path": ["root", "etc", "bin", "system"]
+    }
+
+    def __init__(
+        self,
+        api_base_url: str = "http://localhost:8000",
+        portkey_api_key: Optional[str] = None,
+        portkey_virtual_key: Optional[str] = None,
+        debug: bool = False
+    ):
         """
-        Initialize the IT Operations Agent.
+        Initialize the IT Operations Agent with Portkey.
 
         Args:
             api_base_url: Base URL for the IT Operations API
-            api_key: Anthropic API key (defaults to ANTHROPIC_API_KEY env var)
+            portkey_api_key: Portkey API key
+            portkey_virtual_key: Portkey virtual key for Bedrock
+            debug: Enable debug logging
         """
         self.api_base_url = api_base_url.rstrip('/')
-        self.api_key = api_key or os.environ.get("ANTHROPIC_API_KEY")
+        self.debug = debug
 
-        if not self.api_key:
-            raise ValueError("ANTHROPIC_API_KEY must be set in environment or passed as parameter")
+        # Get Portkey credentials
+        self.portkey_api_key = portkey_api_key or os.environ.get("PORTKEY_API_KEY")
+        self.portkey_virtual_key = portkey_virtual_key or os.environ.get("PORTKEY_VIRTUAL_KEY")
 
-        self.client = Anthropic(api_key=self.api_key)
+        if not self.portkey_api_key:
+            raise ValueError("PORTKEY_API_KEY must be set")
+
+        # Initialize Portkey client
+        self.client = Portkey(
+            api_key=self.portkey_api_key,
+            virtual_key=self.portkey_virtual_key
+        )
+
         self.conversation_history: List[Dict[str, Any]] = []
+        self.reasoning_log: List[str] = []
 
-        # Define the tools available to the agent
+        # System prompt for structured agent behavior
+        self.system_prompt = """You are an advanced agentic AI for IT operations.
+
+Your responsibilities:
+1. Operate as a multi-tool agent with structured reasoning
+2. Follow a strict reasoning loop: INTERPRET → VALIDATE → CHOOSE TOOL → EXECUTE → SUMMARIZE
+3. Validate all inputs before execution
+4. Ask clarifying questions when parameters are missing or ambiguous
+5. Never guess missing parameters
+6. Output technical, CLI-friendly responses (short and deterministic)
+7. Log each reasoning step clearly
+
+Output style:
+- Technical and concise
+- Perfect for terminal usage
+- No emojis or formatting unless explicitly requested
+- Use format: "SUCCESS: ..." or "ERROR: ..." or "CONFIRM: ..."
+
+Available operations:
+- add_user_to_group(username, group_name): Add user to group
+- reboot_vm(vm_name, force): Reboot virtual machine
+- whitelist_path(path, reason): Whitelist path on Data Gateway
+
+Safety rules:
+- Production VMs require confirmation before reboot
+- System paths require confirmation before whitelisting
+- Always validate input formats
+"""
+
+        # Define tools with strict schemas
         self.tools = [
             {
                 "name": "add_user_to_group",
-                "description": "Add a user to a specific group. Use this when someone asks to add a user to a group, grant group membership, or give a user group access.",
+                "description": "Add a user to a specific group. Validates username and group name before execution.",
                 "input_schema": {
                     "type": "object",
                     "properties": {
                         "username": {
                             "type": "string",
-                            "description": "The username of the user to add to the group"
+                            "description": "Username to add (alphanumeric, dash, underscore only)"
                         },
                         "group_name": {
                             "type": "string",
-                            "description": "The name of the group to add the user to"
+                            "description": "Group name (alphanumeric, dash, underscore only)"
                         }
                     },
                     "required": ["username", "group_name"]
@@ -58,17 +126,17 @@ class ITOperationsAgent:
             },
             {
                 "name": "reboot_vm",
-                "description": "Reboot a virtual machine. Use this when someone asks to reboot, restart, or power cycle a VM or server.",
+                "description": "Reboot a virtual machine. Production VMs require explicit confirmation.",
                 "input_schema": {
                     "type": "object",
                     "properties": {
                         "vm_name": {
                             "type": "string",
-                            "description": "The name or identifier of the virtual machine to reboot"
+                            "description": "VM name or ID"
                         },
                         "force": {
                             "type": "boolean",
-                            "description": "Whether to force the reboot (true) or do a graceful reboot (false). Default is false.",
+                            "description": "Force reboot (default: false)",
                             "default": False
                         }
                     },
@@ -77,17 +145,17 @@ class ITOperationsAgent:
             },
             {
                 "name": "whitelist_path",
-                "description": "Whitelist a file path in the Data Gateway or security system. Use this when someone asks to whitelist, allow, or permit access to a specific file path or directory.",
+                "description": "Whitelist a file path in Data Gateway. System paths require confirmation.",
                 "input_schema": {
                     "type": "object",
                     "properties": {
                         "path": {
                             "type": "string",
-                            "description": "The file path or directory to whitelist"
+                            "description": "File system path to whitelist"
                         },
                         "reason": {
                             "type": "string",
-                            "description": "Optional reason for whitelisting this path"
+                            "description": "Reason for whitelisting"
                         }
                     },
                     "required": ["path"]
@@ -95,17 +163,96 @@ class ITOperationsAgent:
             }
         ]
 
+    def _log_reasoning(self, step: str, message: str):
+        """Log a reasoning step."""
+        timestamp = datetime.now().strftime("%H:%M:%S")
+        log_entry = f"[{timestamp}] {step}: {message}"
+        self.reasoning_log.append(log_entry)
+        if self.debug:
+            logger.info(log_entry)
+
+    def _validate_input(self, tool_name: str, tool_input: Dict[str, Any]) -> Tuple[bool, str]:
+        """
+        Validate tool inputs before execution.
+
+        Returns:
+            (is_valid, error_message)
+        """
+        self._log_reasoning(ReasoningStep.VALIDATE, f"Validating inputs for {tool_name}")
+
+        if tool_name == "add_user_to_group":
+            username = tool_input.get("username", "")
+            group_name = tool_input.get("group_name", "")
+
+            # Validate username format
+            if not re.match(r'^[a-zA-Z0-9_-]+$', username):
+                return False, f"Invalid username format: '{username}' (alphanumeric, dash, underscore only)"
+
+            # Validate group name format
+            if not re.match(r'^[a-zA-Z0-9_-]+$', group_name):
+                return False, f"Invalid group name format: '{group_name}' (alphanumeric, dash, underscore only)"
+
+            # Length checks
+            if len(username) < 2 or len(username) > 32:
+                return False, f"Username length must be 2-32 characters"
+
+            if len(group_name) < 2 or len(group_name) > 32:
+                return False, f"Group name length must be 2-32 characters"
+
+        elif tool_name == "reboot_vm":
+            vm_name = tool_input.get("vm_name", "")
+
+            if not vm_name or len(vm_name) < 2:
+                return False, "VM name cannot be empty or too short"
+
+            # Check for dangerous operations
+            vm_lower = vm_name.lower()
+            for dangerous_keyword in self.DANGEROUS_OPS["reboot_vm"]:
+                if dangerous_keyword in vm_lower:
+                    self._log_reasoning(
+                        ReasoningStep.VALIDATE,
+                        f"Detected potentially dangerous VM: {vm_name}"
+                    )
+                    return False, f"CONFIRM: Reboot '{vm_name}' (production system)? Reply 'yes' to confirm."
+
+        elif tool_name == "whitelist_path":
+            path = tool_input.get("path", "")
+
+            if not path or len(path) < 2:
+                return False, "Path cannot be empty"
+
+            # Check for absolute path
+            if not path.startswith('/'):
+                return False, f"Path must be absolute (start with /): '{path}'"
+
+            # Check for dangerous patterns
+            dangerous_patterns = ['..', '~', '$', '`', ';', '|', '&']
+            for pattern in dangerous_patterns:
+                if pattern in path:
+                    return False, f"Path contains dangerous pattern '{pattern}': {path}"
+
+            # Check for system paths
+            path_lower = path.lower()
+            for dangerous_keyword in self.DANGEROUS_OPS["whitelist_path"]:
+                if f"/{dangerous_keyword}/" in path_lower or path_lower.startswith(f"/{dangerous_keyword}"):
+                    return False, f"CONFIRM: Whitelist system path '{path}'? Reply 'yes' to confirm."
+
+        self._log_reasoning(ReasoningStep.VALIDATE, "Validation passed")
+        return True, ""
+
     def _call_api_endpoint(self, tool_name: str, tool_input: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Call the appropriate API endpoint based on the tool name and input.
+        Execute API call to the appropriate endpoint.
 
         Args:
             tool_name: Name of the tool to execute
             tool_input: Input parameters for the tool
 
         Returns:
-            Response from the API endpoint
+            API response as dict
         """
+        self._log_reasoning(ReasoningStep.EXECUTE, f"Calling API: {tool_name}")
+
         try:
             if tool_name == "add_user_to_group":
                 url = f"{self.api_base_url}/users/add-to-group"
@@ -124,113 +271,145 @@ class ITOperationsAgent:
 
             response.raise_for_status()
             result = response.json()
-            logger.info(f"API call successful: {tool_name} - {result}")
+
+            self._log_reasoning(ReasoningStep.EXECUTE, f"API call successful: {result.get('message', 'OK')}")
             return result
+
+        except requests.exceptions.Timeout:
+            error_msg = f"API timeout for {tool_name}"
+            self._log_reasoning(ReasoningStep.EXECUTE, f"ERROR: {error_msg}")
+            return {"error": error_msg, "success": False}
+
+        except requests.exceptions.ConnectionError:
+            error_msg = f"Cannot connect to API server at {self.api_base_url}"
+            self._log_reasoning(ReasoningStep.EXECUTE, f"ERROR: {error_msg}")
+            return {"error": error_msg, "success": False}
 
         except requests.exceptions.RequestException as e:
             error_msg = f"API call failed: {str(e)}"
-            logger.error(error_msg)
-            return {"error": error_msg}
+            self._log_reasoning(ReasoningStep.EXECUTE, f"ERROR: {error_msg}")
+            return {"error": error_msg, "success": False}
 
     def process_tool_use(self, tool_name: str, tool_input: Dict[str, Any]) -> str:
         """
-        Process a tool use request by calling the API and formatting the response.
+        Process tool use with validation.
 
         Args:
-            tool_name: Name of the tool to use
-            tool_input: Input parameters for the tool
+            tool_name: Name of the tool
+            tool_input: Tool input parameters
 
         Returns:
-            Formatted result as a string
+            JSON string with result
         """
-        logger.info(f"Executing tool: {tool_name} with input: {tool_input}")
+        # Validate inputs
+        is_valid, error_message = self._validate_input(tool_name, tool_input)
+
+        if not is_valid:
+            return json.dumps({"error": error_message, "success": False})
+
+        # Execute the tool
         result = self._call_api_endpoint(tool_name, tool_input)
         return json.dumps(result)
 
     def chat(self, user_message: str) -> str:
         """
-        Process a user message and return the agent's response.
+        Process user message with structured reasoning loop.
+
+        Reasoning loop: INTERPRET → VALIDATE → CHOOSE TOOL → EXECUTE → SUMMARIZE
 
         Args:
-            user_message: The user's input message
+            user_message: User's input message
 
         Returns:
-            The agent's response
+            Agent's response (technical, CLI-friendly)
         """
-        # Add user message to conversation history
+        self.reasoning_log.clear()
+        self._log_reasoning(ReasoningStep.INTERPRET, f"User request: {user_message}")
+
+        # Add user message to history
         self.conversation_history.append({
             "role": "user",
             "content": user_message
         })
 
         try:
-            # Call Claude API with tool use
-            response = self.client.messages.create(
-                model="claude-3-5-sonnet-20241022",
-                max_tokens=4096,
+            # Call Portkey with Bedrock Claude Opus 4
+            response = self.client.chat.completions.create(
+                model="@bedrock-global/us.anthropic.claude-opus-4-20250514-v1:0",
+                messages=[
+                    {"role": "system", "content": self.system_prompt},
+                    *self.conversation_history
+                ],
                 tools=self.tools,
-                messages=self.conversation_history
+                max_tokens=4096,
+                temperature=0.1  # Low temperature for deterministic output
             )
 
-            # Process the response
-            assistant_message = {"role": "assistant", "content": response.content}
-            self.conversation_history.append(assistant_message)
+            # Extract the response
+            assistant_message = response.choices[0].message
+            self.conversation_history.append({
+                "role": "assistant",
+                "content": assistant_message.content or ""
+            })
 
-            # Check if Claude wants to use a tool
-            tool_uses = [block for block in response.content if block.type == "tool_use"]
+            # Check if tool was called
+            if assistant_message.tool_calls:
+                self._log_reasoning(ReasoningStep.CHOOSE_TOOL, "Tool selected by agent")
 
-            if tool_uses:
-                # Process each tool use
-                for tool_use in tool_uses:
-                    tool_name = tool_use.name
-                    tool_input = tool_use.input
+                for tool_call in assistant_message.tool_calls:
+                    tool_name = tool_call.function.name
+                    tool_input = json.loads(tool_call.function.arguments)
 
-                    logger.info(f"Claude wants to use tool: {tool_name}")
+                    self._log_reasoning(
+                        ReasoningStep.CHOOSE_TOOL,
+                        f"Tool: {tool_name}, Params: {tool_input}"
+                    )
 
-                    # Execute the tool
+                    # Process the tool
                     tool_result = self.process_tool_use(tool_name, tool_input)
+                    result_dict = json.loads(tool_result)
 
                     # Add tool result to conversation
                     self.conversation_history.append({
-                        "role": "user",
-                        "content": [
-                            {
-                                "type": "tool_result",
-                                "tool_use_id": tool_use.id,
-                                "content": tool_result
-                            }
-                        ]
+                        "role": "tool",
+                        "tool_call_id": tool_call.id,
+                        "name": tool_name,
+                        "content": tool_result
                     })
 
-                # Get final response from Claude after tool execution
-                final_response = self.client.messages.create(
-                    model="claude-3-5-sonnet-20241022",
-                    max_tokens=4096,
-                    tools=self.tools,
-                    messages=self.conversation_history
-                )
+                    # Get final summary from agent
+                    final_response = self.client.chat.completions.create(
+                        model="@bedrock-global/us.anthropic.claude-opus-4-20250514-v1:0",
+                        messages=[
+                            {"role": "system", "content": self.system_prompt},
+                            *self.conversation_history
+                        ],
+                        max_tokens=512,
+                        temperature=0.1
+                    )
 
-                # Add final response to history
-                self.conversation_history.append({
-                    "role": "assistant",
-                    "content": final_response.content
-                })
+                    final_message = final_response.choices[0].message.content
+                    self._log_reasoning(ReasoningStep.SUMMARIZE, "Response generated")
 
-                # Extract text response
-                text_blocks = [block.text for block in final_response.content if hasattr(block, "text")]
-                return "\n".join(text_blocks)
+                    return final_message
 
             else:
-                # No tool use, just return the text response
-                text_blocks = [block.text for block in response.content if hasattr(block, "text")]
-                return "\n".join(text_blocks)
+                # No tool call - agent needs clarification or is responding
+                self._log_reasoning(ReasoningStep.SUMMARIZE, "No tool execution needed")
+                return assistant_message.content
 
         except Exception as e:
-            error_msg = f"Error processing message: {str(e)}"
+            error_msg = f"Agent error: {str(e)}"
             logger.error(error_msg)
-            return f"I encountered an error: {error_msg}"
+            self._log_reasoning("ERROR", error_msg)
+            return f"ERROR: {error_msg}"
+
+    def get_reasoning_log(self) -> List[str]:
+        """Get the current reasoning log."""
+        return self.reasoning_log.copy()
 
     def reset_conversation(self):
-        """Reset the conversation history."""
-        self.conversation_history = []
-        logger.info("Conversation history reset")
+        """Reset conversation history and reasoning log."""
+        self.conversation_history.clear()
+        self.reasoning_log.clear()
+        logger.info("Conversation reset")
