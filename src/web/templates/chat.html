@@ -275,13 +275,20 @@
             const reader = new FileReader();
             reader.onload = (e) => {
                 preview.innerHTML = `
-                    <div>
+                    <div style="position: relative; display: inline-block;">
                         <img src="${e.target.result}" class="screenshot-preview" alt="Screenshot preview">
-                        <div class="file-name">📄 ${file.name} (${(file.size / 1024).toFixed(2)} KB)</div>
+                        <button onclick="clearFileSelection()" style="position: absolute; top: 5px; right: 5px; background: #dc3545; color: white; border: none; border-radius: 50%; width: 25px; height: 25px; cursor: pointer; font-weight: bold;">×</button>
+                        <div class="file-name">📄 ${file.name} (${(file.size / 1024).toFixed(2)} KB) <button onclick="clearFileSelection()" style="margin-left: 10px; background: #dc3545; color: white; border: none; padding: 4px 8px; border-radius: 3px; cursor: pointer; font-size: 11px;">Remove</button></div>
                     </div>
                 `;
             };
             reader.readAsDataURL(file);
+        }
+
+        function clearFileSelection() {
+            selectedFile = null;
+            document.getElementById('filePreview').innerHTML = '';
+            document.getElementById('screenshotInput').value = '';
         }
 
         async function sendMessage() {
