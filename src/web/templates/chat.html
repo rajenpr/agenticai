@@ -94,6 +94,27 @@
         .message.assistant .message-content {
             background: #f0f0f0;
             color: #333;
+            white-space: pre-wrap;
+            word-wrap: break-word;
+        }
+
+        .message.assistant .message-content strong {
+            font-weight: 700;
+            color: #1a1a1a;
+        }
+
+        .message.assistant .message-content ul,
+        .message.assistant .message-content ol {
+            margin: 10px 0;
+            padding-left: 20px;
+        }
+
+        .message.assistant .message-content li {
+            margin: 5px 0;
+        }
+
+        .message.assistant .message-content p {
+            margin: 8px 0;
         }
 
         .message.system .message-content {
@@ -245,6 +266,55 @@
     <script>
         let selectedFile = null;
 
+        function formatMessage(text) {
+            if (!text) return '';
+
+            // Convert **text** to <strong>text</strong>
+            text = text.replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>');
+
+            // Split into lines
+            let lines = text.split('\n');
+            let formatted = [];
+            let inList = false;
+
+            for (let line of lines) {
+                line = line.trim();
+
+                // Handle bullet points
+                if (line.startsWith('- ') || line.startsWith('* ')) {
+                    if (!inList) {
+                        formatted.push('<ul>');
+                        inList = true;
+                    }
+                    formatted.push('<li>' + line.substring(2) + '</li>');
+                }
+                // Handle numbered lists
+                else if (line.match(/^\d+\.\s/)) {
+                    if (!inList) {
+                        formatted.push('<ol>');
+                        inList = true;
+                    }
+                    formatted.push('<li>' + line.replace(/^\d+\.\s/, '') + '</li>');
+                }
+                // Regular line
+                else {
+                    if (inList) {
+                        formatted.push(inList === 'ul' ? '</ul>' : '</ol>');
+                        inList = false;
+                    }
+                    if (line) {
+                        formatted.push('<p>' + line + '</p>');
+                    }
+                }
+            }
+
+            if (inList) {
+                formatted.push('</ul>');
+            }
+
+            return formatted.join('');
+        }
+
         function addMessage(role, content, isHtml = false) {
             const messagesDiv = document.getElementById('chatMessages');
             const messageDiv = document.createElement('div');
@@ -255,6 +325,9 @@
 
             if (isHtml) {
                 contentDiv.innerHTML = content;
+            } else if (role === 'assistant') {
+                // Format assistant messages for better readability
+                contentDiv.innerHTML = formatMessage(content);
             } else {
                 contentDiv.textContent = content;
             }
