@@ -371,14 +371,27 @@ Safety rules:
 
             # Extract the response
             assistant_message = response.choices[0].message
-            self.conversation_history.append({
-                "role": "assistant",
-                "content": assistant_message.content or ""
-            })
 
             # Check if tool was called
             if assistant_message.tool_calls:
                 self._log_reasoning(ReasoningStep.CHOOSE_TOOL, "Tool selected by agent")
+
+                # Add assistant message with tool calls to history
+                assistant_msg_dict = {
+                    "role": "assistant",
+                    "content": assistant_message.content or None,
+                    "tool_calls": [
+                        {
+                            "id": tc.id,
+                            "type": "function",
+                            "function": {
+                                "name": tc.function.name,
+                                "arguments": tc.function.arguments
+                            }
+                        } for tc in assistant_message.tool_calls
+                    ]
+                }
+                self.conversation_history.append(assistant_msg_dict)
 
                 for tool_call in assistant_message.tool_calls:
                     tool_name = tool_call.function.name
@@ -397,7 +410,6 @@ Safety rules:
                     self.conversation_history.append({
                         "role": "tool",
                         "tool_call_id": tool_call.id,
-                        "name": tool_name,
                         "content": tool_result
                     })
 
@@ -419,6 +431,10 @@ Safety rules:
 
             else:
                 # No tool call - agent needs clarification or is responding
+                self.conversation_history.append({
+                    "role": "assistant",
+                    "content": assistant_message.content or "I need more information to proceed."
+                })
                 self._log_reasoning(ReasoningStep.SUMMARIZE, "No tool execution needed")
                 return assistant_message.content
 
