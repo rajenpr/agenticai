@@ -7,7 +7,7 @@ import json
 import requests
 import re
 from typing import List, Dict, Any, Optional, Tuple
-from portkey_ai import Portkey
+from openai import OpenAI
 import logging
 from datetime import datetime
 
@@ -66,16 +66,27 @@ class ITOperationsAgent:
         if not self.portkey_api_key:
             raise ValueError("PORTKEY_API_KEY must be set")
 
-        # Initialize Portkey client
-        # Virtual key is optional - only needed if using Portkey virtual keys for provider routing
-        client_config = {"api_key": self.portkey_api_key}
-        if self.portkey_virtual_key:
-            client_config["virtual_key"] = self.portkey_virtual_key
-            logger.info("Using Portkey virtual key for provider routing")
-        else:
-            logger.info("No virtual key provided - using direct Portkey configuration")
+        # Initialize Portkey client using OpenAI-compatible interface
+        # This approach is more stable and has better compatibility
+        try:
+            portkey_headers = {
+                "x-portkey-api-key": self.portkey_api_key,
+            }
 
-        self.client = Portkey(**client_config)
+            if self.portkey_virtual_key:
+                logger.info("Using Portkey virtual key for provider routing")
+                portkey_headers["x-portkey-virtual-key"] = self.portkey_virtual_key
+            else:
+                logger.info("No virtual key provided - using direct Portkey configuration")
+
+            self.client = OpenAI(
+                base_url="https://api.portkey.ai/v1",
+                default_headers=portkey_headers,
+                api_key=self.portkey_api_key  # Used as fallback
+            )
+        except Exception as e:
+            logger.error(f"Error initializing Portkey client: {e}")
+            raise
 
         self.conversation_history: List[Dict[str, Any]] = []
         self.reasoning_log: List[str] = []
@@ -109,61 +120,69 @@ Safety rules:
 - Always validate input formats
 """
 
-        # Define tools with strict schemas
+        # Define tools using OpenAI function calling format
         self.tools = [
             {
-                "name": "add_user_to_group",
-                "description": "Add a user to a specific group. Validates username and group name before execution.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "username": {
-                            "type": "string",
-                            "description": "Username to add (alphanumeric, dash, underscore only)"
+                "type": "function",
+                "function": {
+                    "name": "add_user_to_group",
+                    "description": "Add a user to a specific group. Validates username and group name before execution.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "username": {
+                                "type": "string",
+                                "description": "Username to add (alphanumeric, dash, underscore only)"
+                            },
+                            "group_name": {
+                                "type": "string",
+                                "description": "Group name (alphanumeric, dash, underscore only)"
+                            }
                         },
-                        "group_name": {
-                            "type": "string",
-                            "description": "Group name (alphanumeric, dash, underscore only)"
-                        }
-                    },
-                    "required": ["username", "group_name"]
+                        "required": ["username", "group_name"]
+                    }
                 }
             },
             {
-                "name": "reboot_vm",
-                "description": "Reboot a virtual machine. Production VMs require explicit confirmation.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "vm_name": {
-                            "type": "string",
-                            "description": "VM name or ID"
+                "type": "function",
+                "function": {
+                    "name": "reboot_vm",
+                    "description": "Reboot a virtual machine. Production VMs require explicit confirmation.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "vm_name": {
+                                "type": "string",
+                                "description": "VM name or ID"
+                            },
+                            "force": {
+                                "type": "boolean",
+                                "description": "Force reboot (default: false)"
+                            }
                         },
-                        "force": {
-                            "type": "boolean",
-                            "description": "Force reboot (default: false)",
-                            "default": False
-                        }
-                    },
-                    "required": ["vm_name"]
+                        "required": ["vm_name"]
+                    }
                 }
             },
             {
-                "name": "whitelist_path",
-                "description": "Whitelist a file path in Data Gateway. System paths require confirmation.",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "path": {
-                            "type": "string",
-                            "description": "File system path to whitelist"
+                "type": "function",
+                "function": {
+                    "name": "whitelist_path",
+                    "description": "Whitelist a file path in Data Gateway. System paths require confirmation.",
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "path": {
+                                "type": "string",
+                                "description": "File system path to whitelist"
+                            },
+                            "reason": {
+                                "type": "string",
+                                "description": "Reason for whitelisting"
+                            }
                         },
-                        "reason": {
-                            "type": "string",
-                            "description": "Reason for whitelisting"
-                        }
-                    },
-                    "required": ["path"]
+                        "required": ["path"]
+                    }
                 }
             }
         ]
