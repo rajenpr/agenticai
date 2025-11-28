@@ -414,12 +414,14 @@ Safety rules:
                     })
 
                     # Get final summary from agent
+                    # Must include tools config when conversation contains tool calls/results (Bedrock requirement)
                     final_response = self.client.chat.completions.create(
                         model="@bedrock-global/us.anthropic.claude-opus-4-20250514-v1:0",
                         messages=[
                             {"role": "system", "content": self.system_prompt},
                             *self.conversation_history
                         ],
+                        tools=self.tools,  # Required by Bedrock when history contains tool messages
                         max_tokens=512,
                         temperature=0.1
                     )
