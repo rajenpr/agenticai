@@ -160,14 +160,7 @@
         }
 
         .file-input-wrapper {
-            position: relative;
-            overflow: hidden;
             display: inline-block;
-        }
-
-        .file-input-wrapper input[type=file] {
-            position: absolute;
-            left: -9999px;
         }
 
         .file-name {
@@ -232,8 +225,8 @@
     <div class="input-area">
         <div class="tools-bar">
             <div class="file-input-wrapper">
-                <button class="btn-secondary">📎 Upload Screenshot</button>
-                <input type="file" id="screenshotInput" accept="image/*" onchange="handleFileSelect(event)">
+                <button class="btn-secondary" onclick="document.getElementById('screenshotInput').click()">📎 Upload Screenshot</button>
+                <input type="file" id="screenshotInput" accept="image/*" onchange="handleFileSelect(event)" style="display: none;">
             </div>
             <button class="btn-secondary" onclick="clearHistory()">🗑️ Clear History</button>
         </div>
