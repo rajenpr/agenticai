@@ -20,27 +20,33 @@ class LDAPAuthenticator:
         self,
         ldap_server: Optional[str] = None,
         ldap_base_dn: Optional[str] = None,
-        use_ssl: bool = True
+        use_ssl: Optional[bool] = None
     ):
         """
         Initialize LDAP authenticator.
 
         Args:
-            ldap_server: LDAP server URL (e.g., 'ldaps://adblrhldap.adbldesign.analog.com')
+            ldap_server: LDAP server URL (e.g., 'ldap://...' or 'ldaps://...')
             ldap_base_dn: Base DN for users (e.g., 'ou=Users,ou=global,dc=analog,dc=com')
-            use_ssl: Whether to use SSL/TLS
+            use_ssl: Whether to use SSL/TLS (auto-detected from URL if not specified)
         """
         self.ldap_server = ldap_server or os.environ.get(
             "LDAP_SERVER",
-            "ldaps://adblrhldap.adbldesign.analog.com"
+            "ldap://adblrhldap.adbldesign.analog.com"
         )
         self.ldap_base_dn = ldap_base_dn or os.environ.get(
             "LDAP_BASE_DN",
             "ou=Users,ou=global,dc=analog,dc=com"
         )
-        self.use_ssl = use_ssl
 
-        logger.info(f"LDAP Authenticator initialized: {self.ldap_server}")
+        # Auto-detect SSL from URL scheme if not explicitly set
+        if use_ssl is None:
+            self.use_ssl = self.ldap_server.startswith("ldaps://")
+        else:
+            self.use_ssl = use_ssl
+
+        ssl_status = "with SSL" if self.use_ssl else "without SSL"
+        logger.info(f"LDAP Authenticator initialized: {self.ldap_server} ({ssl_status})")
 
     def authenticate(self, username: str, password: str) -> Tuple[bool, Optional[str]]:
         """
