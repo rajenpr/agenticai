@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IT Operations AI Agent - Chat</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #f5f5f5;
+            height: 100vh;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .header {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            padding: 15px 20px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: 0 2px 5px rgba(0,0,0,0.1);
+        }
+
+        .header h1 {
+            font-size: 20px;
+        }
+
+        .user-info {
+            display: flex;
+            align-items: center;
+            gap: 15px;
+        }
+
+        .btn-logout {
+            background: rgba(255,255,255,0.2);
+            color: white;
+            border: 1px solid white;
+            padding: 8px 16px;
+            border-radius: 5px;
+            cursor: pointer;
+            transition: background 0.3s;
+        }
+
+        .btn-logout:hover {
+            background: rgba(255,255,255,0.3);
+        }
+
+        .chat-container {
+            flex: 1;
+            display: flex;
+            max-width: 1200px;
+            width: 100%;
+            margin: 0 auto;
+            overflow: hidden;
+        }
+
+        .chat-messages {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            background: white;
+        }
+
+        .message {
+            margin-bottom: 20px;
+            display: flex;
+            gap: 10px;
+        }
+
+        .message.user {
+            justify-content: flex-end;
+        }
+
+        .message-content {
+            max-width: 70%;
+            padding: 12px 16px;
+            border-radius: 10px;
+            line-height: 1.5;
+        }
+
+        .message.user .message-content {
+            background: #667eea;
+            color: white;
+        }
+
+        .message.assistant .message-content {
+            background: #f0f0f0;
+            color: #333;
+        }
+
+        .message.system .message-content {
+            background: #fff3cd;
+            color: #856404;
+            max-width: 100%;
+            text-align: center;
+        }
+
+        .input-area {
+            background: white;
+            padding: 20px;
+            border-top: 1px solid #ddd;
+            max-width: 1200px;
+            width: 100%;
+            margin: 0 auto;
+        }
+
+        .input-group {
+            display: flex;
+            gap: 10px;
+            align-items: flex-end;
+        }
+
+        #messageInput {
+            flex: 1;
+            padding: 12px;
+            border: 1px solid #ddd;
+            border-radius: 5px;
+            font-size: 14px;
+            resize: vertical;
+            min-height: 50px;
+            max-height: 150px;
+        }
+
+        .btn-primary {
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 600;
+            transition: transform 0.2s;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-2px);
+        }
+
+        .btn-primary:disabled {
+            opacity: 0.6;
+            cursor: not-allowed;
+        }
+
+        .btn-secondary {
+            background: #6c757d;
+            color: white;
+            border: none;
+            padding: 12px 24px;
+            border-radius: 5px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .file-input-wrapper {
+            position: relative;
+            overflow: hidden;
+            display: inline-block;
+        }
+
+        .file-input-wrapper input[type=file] {
+            position: absolute;
+            left: -9999px;
+        }
+
+        .file-name {
+            font-size: 12px;
+            color: #666;
+            margin-top: 5px;
+        }
+
+        .screenshot-preview {
+            max-width: 200px;
+            max-height: 200px;
+            margin-top: 10px;
+            border-radius: 5px;
+        }
+
+        .tools-bar {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 10px;
+        }
+
+        .loading {
+            text-align: center;
+            padding: 20px;
+            color: #666;
+        }
+
+        .extracted-text {
+            background: #e8f5e9;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+            font-size: 12px;
+            color: #2e7d32;
+        }
+    </style>
+</head>
+<body>
+    <div class="header">
+        <h1>🤖 IT Operations AI Agent</h1>
+        <div class="user-info">
+            <span>Welcome, <strong>{{ username }}</strong></span>
+            <button class="btn-logout" onclick="logout()">Logout</button>
+        </div>
+    </div>
+
+    <div class="chat-container">
+        <div class="chat-messages" id="chatMessages">
+            <div class="message system">
+                <div class="message-content">
+                    <strong>Welcome to IT Operations AI Agent</strong><br>
+                    You can perform operations like:<br>
+                    • Add users to groups<br>
+                    • Reboot VMs<br>
+                    • Whitelist paths<br>
+                    • Upload screenshots for OCR text extraction
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <div class="input-area">
+        <div class="tools-bar">
+            <div class="file-input-wrapper">
+                <button class="btn-secondary">📎 Upload Screenshot</button>
+                <input type="file" id="screenshotInput" accept="image/*" onchange="handleFileSelect(event)">
+            </div>
+            <button class="btn-secondary" onclick="clearHistory()">🗑️ Clear History</button>
+        </div>
+        <div id="filePreview"></div>
+        <div class="input-group">
+            <textarea
+                id="messageInput"
+                placeholder="Type your request or upload a screenshot..."
+                rows="2"
+                onkeydown="handleKeyDown(event)"
+            ></textarea>
+            <button class="btn-primary" onclick="sendMessage()" id="sendBtn">Send</button>
+        </div>
+    </div>
+
+    <script>
+        let selectedFile = null;
+
+        function addMessage(role, content, isHtml = false) {
+            const messagesDiv = document.getElementById('chatMessages');
+            const messageDiv = document.createElement('div');
+            messageDiv.className = `message ${role}`;
+
+            const contentDiv = document.createElement('div');
+            contentDiv.className = 'message-content';
+
+            if (isHtml) {
+                contentDiv.innerHTML = content;
+            } else {
+                contentDiv.textContent = content;
+            }
+
+            messageDiv.appendChild(contentDiv);
+            messagesDiv.appendChild(messageDiv);
+            messagesDiv.scrollTop = messagesDiv.scrollHeight;
+        }
+
+        function handleFileSelect(event) {
+            const file = event.target.files[0];
+            if (!file) return;
+
+            selectedFile = file;
+            const preview = document.getElementById('filePreview');
+            preview.innerHTML = '';
+
+            const reader = new FileReader();
+            reader.onload = (e) => {
+                preview.innerHTML = `
+                    <div>
+                        <img src="${e.target.result}" class="screenshot-preview" alt="Screenshot preview">
+                        <div class="file-name">📄 ${file.name} (${(file.size / 1024).toFixed(2)} KB)</div>
+                    </div>
+                `;
+            };
+            reader.readAsDataURL(file);
+        }
+
+        async function sendMessage() {
+            const input = document.getElementById('messageInput');
+            const message = input.value.trim();
+
+            if (!message && !selectedFile) return;
+
+            const sendBtn = document.getElementById('sendBtn');
+            sendBtn.disabled = true;
+
+            try {
+                if (selectedFile) {
+                    // Send with screenshot
+                    await sendWithScreenshot(message, selectedFile);
+                } else {
+                    // Regular chat message
+                    addMessage('user', message);
+                    input.value = '';
+
+                    const response = await fetch('/api/chat', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ message })
+                    });
+
+                    if (!response.ok) {
+                        throw new Error('Failed to send message');
+                    }
+
+                    const data = await response.json();
+                    addMessage('assistant', data.response);
+                }
+            } catch (error) {
+                addMessage('system', `Error: ${error.message}`);
+            } finally {
+                sendBtn.disabled = false;
+            }
+        }
+
+        async function sendWithScreenshot(message, file) {
+            const formData = new FormData();
+            formData.append('message', message || 'Please analyze this screenshot');
+            formData.append('file', file);
+
+            addMessage('user', message || 'Analyzing screenshot...');
+
+            const response = await fetch('/api/chat-with-screenshot', {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                throw new Error('Failed to process screenshot');
+            }
+
+            const data = await response.json();
+
+            // Show extracted text
+            if (data.extracted_text) {
+                const extractedHtml = `
+                    <div class="extracted-text">
+                        <strong>📸 Extracted from screenshot (${data.word_count} words):</strong><br>
+                        ${data.extracted_text.substring(0, 200)}${data.extracted_text.length > 200 ? '...' : ''}
+                    </div>
+                `;
+                addMessage('assistant', extractedHtml, true);
+            }
+
+            addMessage('assistant', data.response);
+
+            // Clear file selection
+            selectedFile = null;
+            document.getElementById('filePreview').innerHTML = '';
+            document.getElementById('screenshotInput').value = '';
+            document.getElementById('messageInput').value = '';
+        }
+
+        function handleKeyDown(event) {
+            if (event.key === 'Enter' && !event.shiftKey) {
+                event.preventDefault();
+                sendMessage();
+            }
+        }
+
+        async function logout() {
+            try {
+                await fetch('/api/logout', { method: 'POST' });
+                window.location.href = '/login';
+            } catch (error) {
+                console.error('Logout error:', error);
+                window.location.href = '/login';
+            }
+        }
+
+        async function clearHistory() {
+            if (!confirm('Clear chat history?')) return;
+
+            try {
+                await fetch('/api/clear-history', { method: 'POST' });
+                document.getElementById('chatMessages').innerHTML = '';
+                addMessage('system', 'Chat history cleared');
+            } catch (error) {
+                addMessage('system', `Error clearing history: ${error.message}`);
+            }
+        }
+
+        // Auto-focus message input
+        document.getElementById('messageInput').focus();
+    </script>
+</body>
+</html>
