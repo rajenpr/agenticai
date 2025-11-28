@@ -67,10 +67,15 @@ class ITOperationsAgent:
             raise ValueError("PORTKEY_API_KEY must be set")
 
         # Initialize Portkey client
-        self.client = Portkey(
-            api_key=self.portkey_api_key,
-            virtual_key=self.portkey_virtual_key
-        )
+        # Virtual key is optional - only needed if using Portkey virtual keys for provider routing
+        client_config = {"api_key": self.portkey_api_key}
+        if self.portkey_virtual_key:
+            client_config["virtual_key"] = self.portkey_virtual_key
+            logger.info("Using Portkey virtual key for provider routing")
+        else:
+            logger.info("No virtual key provided - using direct Portkey configuration")
+
+        self.client = Portkey(**client_config)
 
         self.conversation_history: List[Dict[str, Any]] = []
         self.reasoning_log: List[str] = []

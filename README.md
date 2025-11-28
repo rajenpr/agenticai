@@ -88,9 +88,14 @@ pip install -r requirements.txt
 ```bash
 cp .env.example .env
 # Edit .env and set:
-#   PORTKEY_API_KEY=your-portkey-api-key
-#   PORTKEY_VIRTUAL_KEY=your-bedrock-virtual-key (if using)
+#   PORTKEY_API_KEY=your-portkey-api-key (REQUIRED)
+#   PORTKEY_VIRTUAL_KEY=your-virtual-key (OPTIONAL - see note below)
 ```
+
+**Note on Virtual Keys:**
+- `PORTKEY_VIRTUAL_KEY` is **optional** and only needed if you've created a virtual key in your Portkey dashboard
+- If you have Bedrock credentials configured directly in Portkey, you don't need a virtual key
+- The system will work with just `PORTKEY_API_KEY` if your Portkey account has direct Bedrock access
 
 ## Usage
 
@@ -371,6 +376,14 @@ elif tool_name == "restart_service":
 export PORTKEY_API_KEY='your-key'
 # or add to .env file
 ```
+
+**Do I need PORTKEY_VIRTUAL_KEY?**
+No, it's optional! Only set it if:
+- You've created a virtual key in Portkey dashboard for Bedrock routing
+- You want to use Portkey's virtual key feature for provider management
+
+If you have Bedrock credentials configured directly in your Portkey account, you only need `PORTKEY_API_KEY`.
+The agent will log which mode it's using when it starts.
 
 **API server not starting:**
 ```bash
